@@ -9,7 +9,7 @@ impl App {
         Ok(report)
     }
 
-    /// Open the Termius CSV import prompt (asks for the export directory).
+    /// Open the general import prompt (asks for the export directory or file).
     pub fn open_import_prompt(&mut self) {
         let path = crate::import::termius_csv::default_export_dir()
             .map(|p| p.display().to_string())
@@ -19,6 +19,7 @@ impl App {
             path,
             cursor,
             error: None,
+            preview: None,
         });
         self.mode = AppMode::ImportPrompt;
     }
@@ -38,12 +39,30 @@ impl App {
     }
 
     pub(crate) fn handle_key_import_prompt(&mut self, key: KeyEvent) -> Result<()> {
+        let has_preview = self.import_prompt.as_ref().map(|p| p.preview.is_some()).unwrap_or(false);
+
+        if has_preview {
+            match key.code {
+                KeyCode::Esc | KeyCode::Char('n') | KeyCode::Char('N') => {
+                    if let Some(prompt) = self.import_prompt.as_mut() {
+                        prompt.preview = None;
+                        prompt.error = None;
+                    }
+                }
+                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => {
+                    self.run_import_commit()?;
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         match key.code {
             KeyCode::Esc => {
                 self.import_prompt = None;
                 self.mode = AppMode::Normal;
             }
-            KeyCode::Enter | KeyCode::F(2) => self.run_termius_import()?,
+            KeyCode::Enter | KeyCode::F(2) => self.run_import_preview()?,
             KeyCode::Backspace if key.modifiers.is_empty() => self.import_prompt_backspace(),
             KeyCode::Left | KeyCode::Right | KeyCode::Home | KeyCode::End | KeyCode::Delete => {
                 if let Some(p) = self.import_prompt.as_mut() {
@@ -66,35 +85,73 @@ impl App {
         Ok(())
     }
 
-    /// Run the Termius CSV import using the path entered in the prompt.
-    pub(crate) fn run_termius_import(&mut self) -> Result<()> {
+    /// Run the format detection and parse import preview.
+    pub(crate) fn run_import_preview(&mut self) -> Result<()> {
         let Some(prompt) = self.import_prompt.as_ref() else {
             return Ok(());
         };
         let raw = prompt.path.trim();
         if raw.is_empty() {
             if let Some(p) = self.import_prompt.as_mut() {
-                p.error = Some("Enter the Termius export folder path".into());
+                p.error = Some("Enter a path to import".into());
             }
             return Ok(());
         }
 
-        // Accept a path pointing directly at L00t.csv by using its parent folder.
-        let mut dir = shellexpand_home(raw);
-        if dir.is_file() {
-            if let Some(parent) = dir.parent() {
-                dir = parent.to_path_buf();
+        let mut path = shellexpand_home(raw);
+        if path.is_file() {
+            // If user pointed directly at L00t.csv, use parent directory for Termius layout.
+            let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_lowercase();
+            if name == "l00t.csv" {
+                if let Some(parent) = path.parent() {
+                    path = parent.to_path_buf();
+                }
             }
         }
 
-        match crate::import::termius_csv::import_csv_export(
-            &dir,
+        match crate::import::detect_import_format(&path) {
+            Ok(detected) => {
+                match crate::import::parse_preview(&detected) {
+                    Ok(preview) => {
+                        if let Some(p) = self.import_prompt.as_mut() {
+                            p.preview = Some(preview);
+                            p.error = None;
+                        }
+                    }
+                    Err(e) => {
+                        if let Some(p) = self.import_prompt.as_mut() {
+                            p.error = Some(format!("Parse failed: {e:#}"));
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                if let Some(p) = self.import_prompt.as_mut() {
+                    p.error = Some(format!("{e:#}"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Commit the parsed preview to the launcher store and OS keyring.
+    pub(crate) fn run_import_commit(&mut self) -> Result<()> {
+        let Some(prompt) = self.import_prompt.as_ref() else {
+            return Ok(());
+        };
+        let Some(preview) = prompt.preview.as_ref() else {
+            return Ok(());
+        };
+
+        match crate::import::commit_import(
             &self.store,
             self.password_store.as_ref(),
+            preview,
         ) {
             Ok(report) => {
                 let mut msg = format!(
-                    "Termius: {} hosts new, {} skipped · {} passwords + {} passphrases stored",
+                    "{}: {} hosts new, {} skipped · {} passwords + {} passphrases stored",
+                    preview.source_type,
                     report.hosts_imported,
                     report.skipped,
                     report.passwords_stored,
@@ -115,9 +172,8 @@ impl App {
                 self.reload_hosts()?;
             }
             Err(e) => {
-                // Keep the prompt open and show why, so the user can fix the path.
                 if let Some(p) = self.import_prompt.as_mut() {
-                    p.error = Some(format!("{e:#}"));
+                    p.error = Some(format!("Commit failed: {e:#}"));
                 }
             }
         }

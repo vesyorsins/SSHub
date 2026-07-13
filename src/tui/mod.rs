@@ -236,40 +236,91 @@ fn render_import_prompt_popup(frame: &mut Frame, app: &App) {
 
     let area = frame.area();
     let popup_width = (area.width * 80 / 100).max(50).min(area.width);
-    let popup_height = if prompt.error.is_some() { 10 } else { 8 }.min(area.height);
+
+    let (popup_height, lines, title) = if let Some(preview) = &prompt.preview {
+        let mut preview_lines = vec![
+            ratatui::text::Line::from(Span::styled(
+                format!("Source Type: {}", preview.source_type),
+                theme::bright(),
+            )),
+            ratatui::text::Line::from(Span::styled(
+                format!("Hosts to import:      {}", preview.hosts.len()),
+                theme::text(),
+            )),
+            ratatui::text::Line::from(Span::styled(
+                format!("Identities to import: {}", preview.identities.len()),
+                theme::text(),
+            )),
+            ratatui::text::Line::from(""),
+        ];
+        if !preview.hosts.is_empty() {
+            let names: Vec<String> = preview.hosts.iter().take(5).map(|h| h.name.clone()).collect();
+            let mut host_list = names.join(", ");
+            if preview.hosts.len() > 5 {
+                host_list.push_str("...");
+            }
+            preview_lines.push(ratatui::text::Line::from(Span::styled(
+                format!("Preview hosts: {}", host_list),
+                theme::mute(),
+            )));
+            preview_lines.push(ratatui::text::Line::from(""));
+        }
+        if let Some(err) = &prompt.error {
+            preview_lines.push(ratatui::text::Line::from(Span::styled(
+                format!("\u{2717} {err}"),
+                Style::default().fg(Color::Red),
+            )));
+            preview_lines.push(ratatui::text::Line::from(""));
+        }
+        preview_lines.push(ratatui::text::Line::from(Span::styled(
+            "Enter (y): import  \u{2502}  Esc (n): back",
+            theme::dim(),
+        )));
+        (
+            (preview_lines.len() as u16 + 2).max(10).min(area.height),
+            preview_lines,
+            " Import Preview (Dry-run) ",
+        )
+    } else {
+        let mut input_lines = vec![
+            ratatui::text::Line::from(Span::styled(
+                "Path to folder (Termius/PuTTY) or file (.reg/confCons.xml):",
+                theme::text(),
+            )),
+            ratatui::text::Line::from(Span::styled(
+                crate::text_input::with_cursor(&prompt.path, prompt.cursor),
+                theme::bright(),
+            )),
+            ratatui::text::Line::from(""),
+        ];
+        if let Some(err) = &prompt.error {
+            input_lines.push(ratatui::text::Line::from(Span::styled(
+                format!("\u{2717} {err}"),
+                Style::default().fg(Color::Red),
+            )));
+            input_lines.push(ratatui::text::Line::from(""));
+        }
+        input_lines.push(ratatui::text::Line::from(Span::styled(
+            "Enter: preview  \u{2502}  Esc: cancel",
+            theme::dim(),
+        )));
+        (
+            if prompt.error.is_some() { 10 } else { 8 }.min(area.height),
+            input_lines,
+            " Import Connections ",
+        )
+    };
+
     let x = area.x + (area.width.saturating_sub(popup_width)) / 2;
     let y = area.y + (area.height.saturating_sub(popup_height)) / 2;
     let popup_area = Rect::new(x, y, popup_width, popup_height);
-
-    let mut lines = vec![
-        ratatui::text::Line::from(Span::styled(
-            "Path to Termius export folder (contains L00t.csv, ssh_keys/):",
-            theme::text(),
-        )),
-        ratatui::text::Line::from(Span::styled(
-            crate::text_input::with_cursor(&prompt.path, prompt.cursor),
-            theme::bright(),
-        )),
-        ratatui::text::Line::from(""),
-    ];
-    if let Some(err) = &prompt.error {
-        lines.push(ratatui::text::Line::from(Span::styled(
-            format!("\u{2717} {err}"),
-            Style::default().fg(Color::Red),
-        )));
-        lines.push(ratatui::text::Line::from(""));
-    }
-    lines.push(ratatui::text::Line::from(Span::styled(
-        "Enter: import  \u{2502}  Esc: cancel",
-        theme::dim(),
-    )));
 
     frame.render_widget(Clear, popup_area);
     frame.render_widget(
         Paragraph::new(lines).wrap(Wrap { trim: false }).block(
             Block::default()
                 .borders(Borders::ALL)
-                .title(Span::styled(" Import from Termius ", theme::heading()))
+                .title(Span::styled(title, theme::heading()))
                 .border_style(theme::popup_border()),
         ),
         popup_area,

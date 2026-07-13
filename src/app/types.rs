@@ -736,6 +736,7 @@ pub struct ImportPromptEdit {
     pub cursor: usize,
     /// Feedback shown inside the popup (e.g. why the last attempt failed).
     pub error: Option<String>,
+    pub preview: Option<crate::import::ImportPreview>,
 }
 
 /// Which SFTP text prompt is open ([`AppMode::SftpPrompt`]).

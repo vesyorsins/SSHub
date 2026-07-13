@@ -429,7 +429,7 @@ fn find_loot_csv(dir: &Path) -> Option<PathBuf> {
 /// DIFFERENT content (two export keys whose names sanitise to the same
 /// `safe_name`, e.g. `a/b` and `a b`), a numeric suffix is appended so one
 /// host is never silently bound to another host's key.
-fn copy_key_into_ssh(src: &Path, name: &str) -> Result<PathBuf> {
+pub(crate) fn copy_key_into_ssh(src: &Path, name: &str) -> Result<PathBuf> {
     let home =
         std::env::var("HOME").map_err(|_| anyhow::anyhow!("HOME environment variable not set"))?;
     let ssh_dir = PathBuf::from(home).join(".ssh");

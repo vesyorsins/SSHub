@@ -81,7 +81,12 @@ fn shift_t_opens_prompt_and_imports_csv_export() {
     }
     type_path(&mut app, &export.path().display().to_string());
 
-    // Enter runs the import and returns to Normal.
+    // Enter runs the import preview.
+    app.handle_key(key(KeyCode::Enter)).unwrap();
+    assert_eq!(app.mode, AppMode::ImportPrompt);
+    assert!(app.import_prompt.as_ref().unwrap().preview.is_some());
+
+    // Enter again commits the import and returns to Normal.
     app.handle_key(key(KeyCode::Enter)).unwrap();
     assert_eq!(app.mode, AppMode::Normal);
     assert!(app.import_prompt.is_none());
@@ -120,6 +125,8 @@ fn import_accepts_path_to_loot_csv_directly() {
     }
     // Point at the CSV file itself, not the folder.
     type_path(&mut app, &csv.display().to_string());
+    app.handle_key(key(KeyCode::Enter)).unwrap();
+    assert!(app.import_prompt.as_ref().unwrap().preview.is_some());
     app.handle_key(key(KeyCode::Enter)).unwrap();
 
     assert_eq!(app.mode, AppMode::Normal);
@@ -228,9 +235,6 @@ fn import_prompt_bad_path_keeps_prompt_open_with_notice() {
     // Stays on the prompt and shows the error inside the popup.
     assert_eq!(app.mode, AppMode::ImportPrompt);
     let prompt = app.import_prompt.as_ref().unwrap();
-    assert!(prompt
-        .error
-        .as_deref()
-        .unwrap_or("")
-        .contains("L00t.csv not found"));
+    let err = prompt.error.as_deref().unwrap_or("");
+    assert!(err.contains("No such file") || err.contains("not found"));
 }
